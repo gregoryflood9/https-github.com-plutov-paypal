@@ -1,4 +1,4 @@
-package paypalsdk
+package paypal
 
 import (
 	"encoding/json"
@@ -57,8 +57,6 @@ func TestTypeUserInfo(t *testing.T) {
 func TestTypeItem(t *testing.T) {
 	response := `{
     "name":"Item",
-    "price":"22.99",
-    "currency":"GBP",
     "quantity":"1"
 }`
 
@@ -69,8 +67,6 @@ func TestTypeItem(t *testing.T) {
 	}
 
 	if i.Name != "Item" ||
-		i.Price != "22.99" ||
-		i.Currency != "GBP" ||
 		i.Quantity != "1" {
 		t.Errorf("Item decoded result is incorrect, Given: %v", i)
 	}
@@ -225,6 +221,42 @@ func TestTypePayoutResponse(t *testing.T) {
 		pr.Items[0].TransactionStatus != "UNCLAIMED" ||
 		pr.Items[0].Error.Name != "RECEIVER_UNREGISTERED" {
 		t.Errorf("PayoutResponse decoded result is incorrect, Given: %v", pr)
+	}
+}
+
+func TestOrderUnmarshal(t *testing.T) {
+	response := `{
+		"id": "5O190127TN364715T",
+		"status": "CREATED",
+		"links": [
+		  {
+			"href": "https://api.paypal.com/v2/checkout/orders/5O190127TN364715T",
+			"rel": "self",
+			"method": "GET"
+		  },
+		  {
+			"href": "https://api.sandbox.paypal.com/checkoutnow?token=5O190127TN364715T",
+			"rel": "approve",
+			"method": "GET"
+		  },
+		  {
+			"href": "https://api.paypal.com/v2/checkout/orders/5O190127TN364715T/capture",
+			"rel": "capture",
+			"method": "POST"
+		  }
+		]
+	}`
+
+	order := &Order{}
+	err := json.Unmarshal([]byte(response), order)
+	if err != nil {
+		t.Errorf("Order Unmarshal failed")
+	}
+
+	if order.ID != "5O190127TN364715T" ||
+		order.Status != "CREATED" ||
+		order.Links[0].Href != "https://api.paypal.com/v2/checkout/orders/5O190127TN364715T" {
+		t.Errorf("Order decoded result is incorrect, Given: %+v", order)
 	}
 }
 

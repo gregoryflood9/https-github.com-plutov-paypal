@@ -1,68 +1,83 @@
-package paypalsdk
+package paypal
 
 import (
 	"bytes"
 	"fmt"
 	"net/http"
-	"strconv"
 )
 
 // GetAuthorization returns an authorization by ID
-// Endpoint: GET /v1/payments/authorization/ID
+// Endpoint: GET /v2/payments/authorizations/ID
 func (c *Client) GetAuthorization(authID string) (*Authorization, error) {
 	buf := bytes.NewBuffer([]byte(""))
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s%s%s", c.APIBase, "/v1/payments/authorization/", authID), buf)
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s%s%s", c.APIBase, "/v2/payments/authorizations/", authID), buf)
+	auth := &Authorization{}
+
 	if err != nil {
-		return &Authorization{}, err
+		return auth, err
 	}
 
-	auth := &Authorization{}
 	err = c.SendWithAuth(req, auth)
 	return auth, err
 }
 
 // CaptureAuthorization captures and process an existing authorization.
 // To use this method, the original payment must have Intent set to "authorize"
-// Endpoint: POST /v1/payments/authorization/ID/capture
-func (c *Client) CaptureAuthorization(authID string, a *Amount, isFinalCapture bool) (*Capture, error) {
-	isFinalStr := strconv.FormatBool(isFinalCapture)
+// Endpoint: POST /v2/payments/authorizations/ID/capture
+func (c *Client) CaptureAuthorization(authID string, paymentCaptureRequest *PaymentCaptureRequest) (*PaymentCaptureResponse, error) {
+	return c.CaptureAuthorizationWithPaypalRequestId(authID, paymentCaptureRequest, "")
+}
 
-	buf := bytes.NewBuffer([]byte("{\"amount\":{\"currency\":\"" + a.Currency + "\",\"total\":\"" + a.Total + "\"},\"is_final_capture\":" + isFinalStr + "}"))
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s%s", c.APIBase, "/v1/payments/authorization/"+authID+"/capture"), buf)
+// CaptureAuthorization captures and process an existing authorization with idempotency.
+// To use this method, the original payment must have Intent set to "authorize"
+// Endpoint: POST /v2/payments/authorizations/ID/capture
+func (c *Client) CaptureAuthorizationWithPaypalRequestId(
+	authID string,
+	paymentCaptureRequest *PaymentCaptureRequest,
+	requestID string,
+) (*PaymentCaptureResponse, error) {
+	req, err := c.NewRequest("POST", fmt.Sprintf("%s%s", c.APIBase, "/v2/payments/authorizations/"+authID+"/capture"), paymentCaptureRequest)
+	paymentCaptureResponse := &PaymentCaptureResponse{}
+
 	if err != nil {
-		return &Capture{}, err
+		return paymentCaptureResponse, err
 	}
 
-	capture := &Capture{}
-	err = c.SendWithAuth(req, capture)
-	return capture, err
+	if requestID != "" {
+		req.Header.Set("PayPal-Request-Id", requestID)
+	}
+
+	err = c.SendWithAuth(req, paymentCaptureResponse)
+	return paymentCaptureResponse, err
 }
 
 // VoidAuthorization voids a previously authorized payment
-// Endpoint: POST /v1/payments/authorization/ID/void
+// Endpoint: POST /v2/payments/authorizations/ID/void
 func (c *Client) VoidAuthorization(authID string) (*Authorization, error) {
 	buf := bytes.NewBuffer([]byte(""))
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s%s", c.APIBase, "/v1/payments/authorization/"+authID+"/void"), buf)
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s%s", c.APIBase, "/v2/payments/authorizations/"+authID+"/void"), buf)
+	auth := &Authorization{}
+
 	if err != nil {
-		return &Authorization{}, err
+		return auth, err
 	}
 
-	auth := &Authorization{}
 	err = c.SendWithAuth(req, auth)
 	return auth, err
 }
 
 // ReauthorizeAuthorization reauthorize a Paypal account payment.
 // PayPal recommends to reauthorize payment after ~3 days
-// Endpoint: POST /v1/payments/authorization/ID/reauthorize
+// Endpoint: POST /v2/payments/authorizations/ID/reauthorize
 func (c *Client) ReauthorizeAuthorization(authID string, a *Amount) (*Authorization, error) {
-	buf := bytes.NewBuffer([]byte("{\"amount\":{\"currency\":\"" + a.Currency + "\",\"total\":\"" + a.Total + "\"}}"))
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s%s", c.APIBase, "/v1/payments/authorization/"+authID+"/reauthorize"), buf)
+	buf := bytes.NewBuffer([]byte(`{"amount":{"currency":"` + a.Currency + `","total":"` + a.Total + `"}}`))
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s%s", c.APIBase, "/v2/payments/authorizations/"+authID+"/reauthorize"), buf)
+	auth := &Authorization{}
+
 	if err != nil {
-		return &Authorization{}, err
+		return auth, err
 	}
 
-	auth := &Authorization{}
 	err = c.SendWithAuth(req, auth)
 	return auth, err
 }

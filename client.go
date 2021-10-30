@@ -1,4 +1,4 @@
-package paypalsdk
+package paypal
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 )
 
 // NewClient returns new Client struct
-// APIBase is a base API URL, for testing you can use paypalsdk.APIBaseSandBox
+// APIBase is a base API URL, for testing you can use paypal.APIBaseSandBox
 func NewClient(clientID string, secret string, APIBase string) (*Client, error) {
 	if clientID == "" || secret == "" || APIBase == "" {
 		return nil, errors.New("ClientID, Secret and APIBase are required to create a Client")
@@ -39,16 +39,16 @@ func (c *Client) GetAccessToken() (*TokenResponse, error) {
 
 	req.Header.Set("Content-type", "application/x-www-form-urlencoded")
 
-	t := TokenResponse{}
-	err = c.SendWithBasicAuth(req, &t)
+	response := &TokenResponse{}
+	err = c.SendWithBasicAuth(req, response)
 
 	// Set Token fur current Client
-	if t.Token != "" {
-		c.Token = &t
-		c.tokenExpiresAt = time.Now().Add(time.Duration(t.ExpiresIn) * time.Second)
+	if response.Token != "" {
+		c.Token = response
+		c.tokenExpiresAt = time.Now().Add(time.Duration(response.ExpiresIn) * time.Second)
 	}
 
-	return &t, err
+	return response, err
 }
 
 // SetHTTPClient sets *http.Client to current client
@@ -65,9 +65,15 @@ func (c *Client) SetAccessToken(token string) {
 }
 
 // SetLog will set/change the output destination.
-// If log file is set paypalsdk will log all requests and responses to this Writer
+// If log file is set paypal will log all requests and responses to this Writer
 func (c *Client) SetLog(log io.Writer) {
 	c.Log = log
+}
+
+// SetReturnRepresentation enables verbose response
+// Verbose response: https://developer.paypal.com/docs/api/orders/v2/#orders-authorize-header-parameters
+func (c *Client) SetReturnRepresentation() {
+	c.returnRepresentation = true
 }
 
 // Send makes a request to the API, the response body will be
@@ -88,6 +94,9 @@ func (c *Client) Send(req *http.Request, v interface{}) error {
 	if req.Header.Get("Content-type") == "" {
 		req.Header.Set("Content-type", "application/json")
 	}
+	if c.returnRepresentation {
+		req.Header.Set("Prefer", "return=representation")
+	}
 
 	resp, err = c.Client.Do(req)
 	c.log(req, resp)
@@ -107,7 +116,6 @@ func (c *Client) Send(req *http.Request, v interface{}) error {
 
 		return errResp
 	}
-
 	if v == nil {
 		return nil
 	}
@@ -125,10 +133,15 @@ func (c *Client) Send(req *http.Request, v interface{}) error {
 // making the main request
 // client.Token will be updated when changed
 func (c *Client) SendWithAuth(req *http.Request, v interface{}) error {
+	c.Lock()
+	// Note: Here we do not want to `defer c.Unlock()` because we need `c.Send(...)`
+	// to happen outside of the locked section.
+
 	if c.Token != nil {
 		if !c.tokenExpiresAt.IsZero() && c.tokenExpiresAt.Sub(time.Now()) < RequestNewTokenBeforeExpiresIn {
 			// c.Token will be updated in GetAccessToken call
 			if _, err := c.GetAccessToken(); err != nil {
+				c.Unlock()
 				return err
 			}
 		}
@@ -136,6 +149,9 @@ func (c *Client) SendWithAuth(req *http.Request, v interface{}) error {
 		req.Header.Set("Authorization", "Bearer "+c.Token.Token)
 	}
 
+	// Unlock the client mutex before sending the request, this allows multiple requests
+	// to be in progress at the same time.
+	c.Unlock()
 	return c.Send(req, v)
 }
 
@@ -151,7 +167,6 @@ func (c *Client) SendWithBasicAuth(req *http.Request, v interface{}) error {
 func (c *Client) NewRequest(method, url string, payload interface{}) (*http.Request, error) {
 	var buf io.Reader
 	if payload != nil {
-		var b []byte
 		b, err := json.Marshal(&payload)
 		if err != nil {
 			return nil, err
